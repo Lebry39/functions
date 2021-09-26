@@ -2,6 +2,7 @@ import glob
 import MeCab
 import re
 import math
+import unicodedata
 
 wakati = MeCab.Tagger() 
 
@@ -21,18 +22,64 @@ documents = [
 
 
 def extract_words(document):
+    document = unicodedata.normalize("NFKC", document)
     node = wakati.parseToNode(document)
 
-    types = ["名詞", "形容詞", "動詞"]
+    main_features = ["名詞", "形容詞", "動詞"]
+    connect_features = ["助詞"]
 
     words = []
     while node:
-        if node.feature.split(",")[0] in types:
-            words.append(node.surface)
+        feature = node.feature.split(",")[0]
+        word = node.surface
 
+        words.append({
+            "word": word,
+            "feature": feature
+        })
         node = node.next
 
-    return words
+    """
+    
+    （名詞｜形容詞）＋助動？＋（名詞｜動詞｜形容詞）
+
+    """
+
+    results = []
+    skip_words = 0
+    for i, w in enumerate(words):
+        if len(words) - 1 - 2 <= i:
+            break
+
+        if skip_words >= 1:
+            skip_words -= 1
+            continue
+
+        if not w["feature"] in main_features:
+            continue
+
+        connected_word = w["word"]
+        if words[i+1]["feature"] in ["名詞", "形容詞"]:  # 名詞＋名詞
+            connected_word += words[i+1]["word"]
+            skip_words += 1
+            if words[i+2]["feature"] in main_features:  # 名詞＋名詞＋名詞
+                connected_word += words[i+2]["word"]
+                skip_words += 1
+
+            results.append(connected_word)
+            continue
+
+
+        if words[i+1]["feature"] in connect_features:
+            connected_word += words[i+1]["word"]
+            if words[i+2]["feature"] in main_features:  # 名詞＋助詞＋名詞
+                connected_word += words[i+2]["word"]
+                results.append(connected_word)
+                continue
+
+        results.append(w["word"])
+
+    return results
 
 text_paths = glob.glob("./text/*/*")
 for i, path in enumerate(text_paths):
@@ -50,8 +97,8 @@ for i, path in enumerate(text_paths):
         "words": extract_words(body)
     })
     
-    if i >= 1000:  # 全部読むの長いから端折る
-        break
+    # if i >= 100:  # 全部読むの長いから端折る
+    #     break
 
 print(i)
 
@@ -82,18 +129,15 @@ def choice_keywords(document, choices=10):
 
 
 # add prime_words to documents
-for d in documents:
+for i, d in enumerate(documents):
     words = d["words"]
     keywords = choice_keywords(words)
     d["keywords"] = keywords
 
-
-# show results
-for i, d in enumerate(documents):
     print("filename:", d["filename"])
-    print("Keywords:", d["keywords"])
-    print("News:", d["news"])
+    print("Keywords:", d.get("keywords"))
+    print("\nNews:", d["news"])
     print("-------------------------------------------------------------------------")
-    
+
     if i >= 10:
         break
